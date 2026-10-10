@@ -33,15 +33,22 @@ export default async function StoreFrontPage({ params }: StorePageProps) {
 
   const typedSettings = (settings ?? {}) as Partial<StoreSettings>;
 
-  // 3. Procurar produtos publicados
+  // 3. Procurar produtos publicados e respetivas imagens
   const { data: products } = await supabase
     .from("products")
-    .select("*")
+    .select(`
+      *,
+      product_images (
+        media_files (path)
+      )
+    `)
     .eq("store_id", typedStore.id)
     .eq("status", "published")
-    .order("sort_order", { ascending: true });
+    .order("created_at", { ascending: false });
 
-  const typedProducts = (products ?? []) as Product[];
+  const typedProducts = (products ?? []) as (Product & {
+    product_images?: { media_files?: { path?: string } | null }[];
+  })[];
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
@@ -107,13 +114,22 @@ export default async function StoreFrontPage({ params }: StorePageProps) {
                   currency: p.currency || typedStore.currency || "MZN",
                 });
 
+                const mediaPath = p.product_images?.[0]?.media_files?.path;
+                const imageUrl = mediaPath
+                  ? supabase.storage.from("store-public").getPublicUrl(mediaPath).data.publicUrl
+                  : null;
+
                 return (
                   <article
                     key={p.id}
                     className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col hover:shadow-md transition-shadow"
                   >
-                    <div className="aspect-square bg-slate-100 flex items-center justify-center text-slate-400">
-                      <Store className="w-12 h-12" />
+                    <div className="aspect-square bg-slate-100 flex items-center justify-center text-slate-400 overflow-hidden">
+                      {imageUrl ? (
+                        <img src={imageUrl} alt={p.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <Store className="w-12 h-12" />
+                      )}
                     </div>
                     <div className="p-4 flex flex-col flex-1">
                       <h3 className="font-semibold text-slate-900 text-base">{p.name}</h3>

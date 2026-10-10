@@ -13,9 +13,16 @@ import {
   Globe,
   Trash2,
   ArrowLeft,
+  Upload,
+  Loader2,
+  ImageIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { Store, StoreSettings, Product } from "@/types/database";
+
+interface ProductWithImage extends Product {
+  imageUrl?: string | null;
+}
 
 interface StoreBuilderProps {
   initialStore: Store;
@@ -30,9 +37,9 @@ export function StoreBuilder({
 }: StoreBuilderProps) {
   const [store, setStore] = useState<Store>(initialStore);
   const [settings, setSettings] = useState<Partial<StoreSettings>>(initialSettings ?? {});
-  const [products, setProducts] = useState<Product[]>(initialProducts);
+  const [products, setProducts] = useState<ProductWithImage[]>(initialProducts);
 
-  const [activeTab, setActiveTab] = useState<"settings" | "products" | "theme">("settings");
+  const [activeTab, setActiveTab] = useState<"settings" | "products">("settings");
 
   // Estados de feedback
   const [isPending, setIsPending] = useState(false);
@@ -45,6 +52,9 @@ export function StoreBuilder({
   const [newProductPrice, setNewProductPrice] = useState("");
   const [newProductDesc, setNewProductDesc] = useState("");
   const [newProductStock, setNewProductStock] = useState("10");
+  const [newProductImage, setNewProductImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isUploadingProduct, setIsUploadingProduct] = useState(false);
 
   // 1. Guardar definições da loja (WhatsApp, morada, banner)
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -53,18 +63,30 @@ export function StoreBuilder({
     setSaveSuccess(false);
     setIsPending(true);
 
+    // Sanitizar número de WhatsApp (remover +, espaços, traços - manter apenas dígitos)
+    const rawWa = settings.whatsapp_number?.trim();
+    const cleanWa = rawWa ? rawWa.replace(/\D/g, "") : null;
+
+    if (cleanWa && !/^[1-9][0-9]{7,14}$/.test(cleanWa)) {
+      setErrorMessage(
+        "Número de WhatsApp inválido. Insira o indicativo do país seguido do número (ex: 258843885059, entre 8 e 15 dígitos sem símbolos)."
+      );
+      setIsPending(false);
+      return;
+    }
+
     try {
       const supabase = createClient();
       const { error } = await supabase
         .from("store_settings")
         .update({
-          description: settings.description || null,
-          whatsapp_number: settings.whatsapp_number || null,
-          phone: settings.phone || null,
-          contact_email: settings.contact_email || null,
-          address: settings.address || null,
-          banner_title: settings.banner_title || null,
-          banner_subtitle: settings.banner_subtitle || null,
+          description: settings.description?.trim() || null,
+          whatsapp_number: cleanWa,
+          phone: settings.phone?.trim() || null,
+          contact_email: settings.contact_email?.trim() || null,
+          address: settings.address?.trim() || null,
+          banner_title: settings.banner_title?.trim() || null,
+          banner_subtitle: settings.banner_subtitle?.trim() || null,
         })
         .eq("store_id", store.id);
 
@@ -73,6 +95,7 @@ export function StoreBuilder({
         return;
       }
 
+      setSettings((prev) => ({ ...prev, whatsapp_number: cleanWa }));
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } finally {
@@ -104,14 +127,16 @@ export function StoreBuilder({
     }
   };
 
-  // 3. Criar novo produto
+  // 3. Criar novo produto com upload de imagem
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setIsUploadingProduct(true);
 
     const priceCents = Math.round(parseFloat(newProductPrice.replace(",", ".")) * 100);
     if (isNaN(priceCents) || priceCents < 0) {
       setErrorMessage("Introduza um preço válido.");
+      setIsUploadingProduct(false);
       return;
     }
 
@@ -122,33 +147,101 @@ export function StoreBuilder({
       .replace(/[^a-z0-9]+/g, "-")
       .slice(0, 30);
 
-    const supabase = createClient();
-    const { data: createdProduct, error } = await supabase
-      .from("products")
-      .insert({
-        store_id: store.id,
-        name: newProductName.trim(),
-        slug,
-        description: newProductDesc.trim() || null,
-        price_cents: priceCents,
-        stock_quantity: parseInt(newProductStock, 10) || 0,
-        currency: store.currency,
-        status: "published",
-      })
-      .select("*")
-      .single();
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    if (error) {
-      setErrorMessage(`Erro ao criar produto: ${error.message}`);
-      return;
+      // Inserir produto
+      const { data: createdProduct, error: prodError } = await supabase
+        .from("products")
+        .insert({
+          store_id: store.id,
+          name: newProductName.trim(),
+          slug,
+          description: newProductDesc.trim() || null,
+          price_cents: priceCents,
+          stock_quantity: parseInt(newProductStock, 10) || 0,
+          currency: store.currency,
+          status: "published",
+        })
+        .select("*")
+        .single();
+
+      if (prodError || !createdProduct) {
+        setErrorMessage(`Erro ao criar produto: ${prodError?.message}`);
+        setIsUploadingProduct(false);
+        return;
+      }
+
+      let uploadedImageUrl: string | null = null;
+
+      // Se houver imagem selecionada, enviar para o Supabase Storage
+      if (newProductImage && user) {
+        const fileExt = newProductImage.name.split(".").pop() || "jpg";
+        const sanitizedFileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+        const filePath = `${store.id}/product/${sanitizedFileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("store-public")
+          .upload(filePath, newProductImage, {
+            contentType: newProductImage.type,
+            upsert: true,
+          });
+
+        if (!uploadError) {
+          // Registar ficheiro em media_files
+          const { data: mediaFile } = await supabase
+            .from("media_files")
+            .insert({
+              store_id: store.id,
+              kind: "product",
+              bucket: "store-public",
+              path: filePath,
+              mime_type: newProductImage.type,
+              size_bytes: newProductImage.size,
+              created_by: user.id,
+            })
+            .select("id")
+            .single();
+
+          if (mediaFile) {
+            // Associar imagem ao produto
+            await supabase.from("product_images").insert({
+              store_id: store.id,
+              product_id: createdProduct.id,
+              media_id: mediaFile.id,
+              is_primary: true,
+              position: 0,
+            });
+          }
+
+          const { data: publicUrlData } = supabase.storage
+            .from("store-public")
+            .getPublicUrl(filePath);
+
+          uploadedImageUrl = publicUrlData.publicUrl;
+        }
+      }
+
+      setProducts((prev) => [
+        { ...createdProduct, imageUrl: uploadedImageUrl },
+        ...prev,
+      ]);
+
+      setShowNewProductModal(false);
+      setNewProductName("");
+      setNewProductPrice("");
+      setNewProductDesc("");
+      setNewProductStock("10");
+      setNewProductImage(null);
+      setImagePreview(null);
+    } catch (err: unknown) {
+      setErrorMessage(`Erro inesperado: ${(err as Error).message}`);
+    } finally {
+      setIsUploadingProduct(false);
     }
-
-    setProducts((prev) => [...prev, createdProduct as Product]);
-    setShowNewProductModal(false);
-    setNewProductName("");
-    setNewProductPrice("");
-    setNewProductDesc("");
-    setNewProductStock("10");
   };
 
   // 4. Eliminar produto
@@ -284,10 +377,12 @@ export function StoreBuilder({
                     type="text"
                     value={settings.whatsapp_number || ""}
                     onChange={(e) => setSettings({ ...settings, whatsapp_number: e.target.value })}
-                    placeholder="Ex: +258841234567"
+                    placeholder="258843885059"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
-                  <p className="mt-1 text-xs text-slate-400">Ex.: +258 (Moçambique), +55 (Brasil), etc.</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Insira apenas dígitos com indicativo (ex: <strong>258843885059</strong>). Símbolos e espaços são limpos automaticamente.
+                  </p>
                 </div>
 
                 <div>
@@ -299,7 +394,7 @@ export function StoreBuilder({
                     type="text"
                     value={settings.phone || ""}
                     onChange={(e) => setSettings({ ...settings, phone: e.target.value })}
-                    placeholder="Ex: +258821234567"
+                    placeholder="258864339593"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
                 </div>
@@ -318,7 +413,7 @@ export function StoreBuilder({
                     rows={2}
                     value={settings.description || ""}
                     onChange={(e) => setSettings({ ...settings, description: e.target.value })}
-                    placeholder="Ex: A melhor loja de artigos desportivos e calçado em Maputo."
+                    placeholder="Ex: Todo tipo de bolos gourmet, doces finos e encomendas personalizadas."
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
                 </div>
@@ -332,7 +427,7 @@ export function StoreBuilder({
                     type="text"
                     value={settings.address || ""}
                     onChange={(e) => setSettings({ ...settings, address: e.target.value })}
-                    placeholder="Ex: Av. 24 de Julho, Maputo"
+                    placeholder="Ex: Maputo, Moçambique"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
                 </div>
@@ -351,7 +446,7 @@ export function StoreBuilder({
                     type="text"
                     value={settings.banner_title || ""}
                     onChange={(e) => setSettings({ ...settings, banner_title: e.target.value })}
-                    placeholder="Ex: Nova Coleção de Verão"
+                    placeholder="Ex: Encomende Bolos Deliciosos para a sua Festa"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
                 </div>
@@ -365,7 +460,7 @@ export function StoreBuilder({
                     type="text"
                     value={settings.banner_subtitle || ""}
                     onChange={(e) => setSettings({ ...settings, banner_subtitle: e.target.value })}
-                    placeholder="Ex: Até 30% de desconto em encomendas até domingo."
+                    placeholder="Ex: Entregas rápidas em Maputo e Matola."
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
                 </div>
@@ -391,7 +486,7 @@ export function StoreBuilder({
           <div className="flex items-center justify-between mb-6">
             <div>
               <h3 className="text-lg font-bold text-slate-900">Produtos da Montra</h3>
-              <p className="text-xs text-slate-500">Adicione artigos para os clientes visualizarem e encomendarem</p>
+              <p className="text-xs text-slate-500">Adicione artigos com foto para os clientes visualizarem e encomendarem</p>
             </div>
 
             <button
@@ -410,7 +505,7 @@ export function StoreBuilder({
               </div>
               <h4 className="font-bold text-slate-900 mb-1">Ainda não tem produtos adicionados</h4>
               <p className="text-xs text-slate-500 max-w-sm mx-auto mb-4">
-                Crie o seu primeiro produto para começar a receber pedidos no WhatsApp.
+                Crie o seu primeiro produto com foto e preço para começar a receber pedidos no WhatsApp.
               </p>
               <button
                 onClick={() => setShowNewProductModal(true)}
@@ -425,7 +520,7 @@ export function StoreBuilder({
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase font-semibold text-slate-600">
                   <tr>
-                    <th className="py-3.5 px-4">Produto</th>
+                    <th className="py-3.5 px-4">Artigo</th>
                     <th className="py-3.5 px-4">Preço</th>
                     <th className="py-3.5 px-4">Stock</th>
                     <th className="py-3.5 px-4">Estado</th>
@@ -442,8 +537,23 @@ export function StoreBuilder({
                     return (
                       <tr key={p.id} className="hover:bg-slate-50/50">
                         <td className="py-3.5 px-4">
-                          <div className="font-semibold text-slate-900">{p.name}</div>
-                          {p.description && <div className="text-xs text-slate-400 truncate max-w-xs">{p.description}</div>}
+                          <div className="flex items-center gap-3">
+                            {p.imageUrl ? (
+                              <img
+                                src={p.imageUrl}
+                                alt={p.name}
+                                className="w-10 h-10 rounded-lg object-cover border border-slate-200"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400">
+                                <ImageIcon className="w-5 h-5" />
+                              </div>
+                            )}
+                            <div>
+                              <div className="font-semibold text-slate-900">{p.name}</div>
+                              {p.description && <div className="text-xs text-slate-400 truncate max-w-xs">{p.description}</div>}
+                            </div>
+                          </div>
                         </td>
                         <td className="py-3.5 px-4 font-bold text-slate-900">{priceFormatted}</td>
                         <td className="py-3.5 px-4 text-slate-600 text-xs">{p.stock_quantity ?? "Ilimitado"}</td>
@@ -471,14 +581,49 @@ export function StoreBuilder({
         </div>
       )}
 
-      {/* Modal Novo Produto */}
+      {/* Modal Novo Produto com Upload de Imagem */}
       {showNewProductModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-md w-full shadow-xl">
             <h3 className="text-lg font-bold text-slate-900 mb-1">Novo Produto</h3>
-            <p className="text-xs text-slate-500 mb-4">Adicione um novo item ao catálogo da sua loja</p>
+            <p className="text-xs text-slate-500 mb-4">Adicione um novo item com foto ao catálogo da sua loja</p>
 
             <form onSubmit={handleCreateProduct} className="space-y-4">
+              {/* Foto do produto */}
+              <div>
+                <label className="block text-xs font-semibold uppercase text-slate-700 mb-1">
+                  Foto do Artigo
+                </label>
+                <div className="flex items-center gap-3">
+                  {imagePreview ? (
+                    <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200">
+                      <img src={imagePreview} alt="Prévia" className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-slate-50 border border-dashed border-slate-300 flex items-center justify-center text-slate-400">
+                      <ImageIcon className="w-6 h-6" />
+                    </div>
+                  )}
+
+                  <label className="flex-1 cursor-pointer flex items-center justify-center gap-2 px-3 py-2 border border-slate-300 hover:bg-slate-50 rounded-xl text-xs font-medium text-slate-700 transition-colors">
+                    <Upload className="w-4 h-4 text-slate-500" />
+                    <span>{newProductImage ? "Alterar foto" : "Carregar do computador"}</span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setNewProductImage(file);
+                          setImagePreview(URL.createObjectURL(file));
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold uppercase text-slate-700 mb-1" htmlFor="pName">
                   Nome do Artigo <span className="text-rose-500">*</span>
@@ -489,7 +634,7 @@ export function StoreBuilder({
                   required
                   value={newProductName}
                   onChange={(e) => setNewProductName(e.target.value)}
-                  placeholder="Ex: Ténis Nike Air Max"
+                  placeholder="Ex: Bolo de Chocolate com Morango"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 />
               </div>
@@ -506,7 +651,7 @@ export function StoreBuilder({
                     required
                     value={newProductPrice}
                     onChange={(e) => setNewProductPrice(e.target.value)}
-                    placeholder="2500"
+                    placeholder="1500"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   />
                 </div>
@@ -535,7 +680,7 @@ export function StoreBuilder({
                   rows={2}
                   value={newProductDesc}
                   onChange={(e) => setNewProductDesc(e.target.value)}
-                  placeholder="Tamanho 40-44, cores preto e branco..."
+                  placeholder="Feito com chocolate belga e morangos frescos. Serve 12 pessoas."
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 />
               </div>
@@ -543,16 +688,29 @@ export function StoreBuilder({
               <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowNewProductModal(false)}
+                  disabled={isUploadingProduct}
+                  onClick={() => {
+                    setShowNewProductModal(false);
+                    setNewProductImage(null);
+                    setImagePreview(null);
+                  }}
                   className="px-4 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-4 py-2 rounded-xl shadow-xs"
+                  disabled={isUploadingProduct}
+                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium px-4 py-2 rounded-xl shadow-xs"
                 >
-                  Adicionar Artigo
+                  {isUploadingProduct ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>A guardar produto...</span>
+                    </>
+                  ) : (
+                    <span>Adicionar Artigo</span>
+                  )}
                 </button>
               </div>
             </form>
