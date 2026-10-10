@@ -16,9 +16,9 @@
     "test:unit": "vitest run tests/unit",
     "test:db": "vitest run tests/db",
     "test:watch": "vitest",
-    "superadmin:bootstrap": "tsx scripts/bootstrap-superadmin.ts",
-    "superadmin:verify": "tsx scripts/bootstrap-superadmin.ts --verify",
-    "superadmin:rotate": "tsx scripts/bootstrap-superadmin.ts --rotate-password",
+    "superadmin:bootstrap": "tsx --env-file=.env.local scripts/bootstrap-superadmin.ts",
+    "superadmin:verify": "tsx --env-file=.env.local scripts/bootstrap-superadmin.ts --verify",
+    "superadmin:rotate": "tsx --env-file=.env.local scripts/bootstrap-superadmin.ts --rotate-password",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
