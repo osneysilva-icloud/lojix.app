@@ -7,11 +7,11 @@ const supabaseHost = supabaseUrl ? new URL(supabaseUrl).host : undefined;
 // (hidratação) e do Meta Pixel (quando ativo e com consentimento). Ver docs/SECURITY.md.
 const csp = [
   "default-src 'self'",
-  `img-src 'self' data: blob: https://www.facebook.com ${supabaseHost ? `https://${supabaseHost}` : ""}`.trim(),
+  `img-src 'self' data: blob: https://*.supabase.co https://www.facebook.com ${supabaseHost ? `https://${supabaseHost}` : ""}`.trim(),
   "script-src 'self' 'unsafe-inline' https://connect.facebook.net" +
     (process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""),
   "style-src 'self' 'unsafe-inline'",
-  `connect-src 'self' https://www.facebook.com ${supabaseHost ? `https://${supabaseHost} wss://${supabaseHost}` : ""}`.trim(),
+  `connect-src 'self' https://*.supabase.co wss://*.supabase.co https://www.facebook.com ${supabaseHost ? `https://${supabaseHost} wss://${supabaseHost}` : ""}`.trim(),
   "font-src 'self' data:",
   "object-src 'none'",
   "base-uri 'self'",
@@ -36,9 +36,9 @@ const nextConfig: NextConfig = {
     serverActions: { bodySizeLimit: "12mb" },
   },
   images: {
-    remotePatterns: supabaseHost
-      ? [{ protocol: "https", hostname: supabaseHost, pathname: "/storage/v1/object/public/**" }]
-      : [],
+    remotePatterns: [
+      { protocol: "https", hostname: "*.supabase.co", pathname: "/storage/v1/object/public/**" },
+    ],
     formats: ["image/avif", "image/webp"],
   },
   async headers() {
