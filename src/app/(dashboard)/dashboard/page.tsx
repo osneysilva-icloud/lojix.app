@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Store, Plus, Package, ExternalLink, Settings } from "lucide-react";
 import Link from "next/link";
+import { LogoutButton } from "@/components/auth/LogoutButton";
 import type { Store as StoreModel, Profile } from "@/types/database";
 
 export default async function DashboardPage() {
@@ -57,6 +58,8 @@ export default async function DashboardPage() {
                 Superadmin
               </Link>
             )}
+            <div className="h-4 w-px bg-slate-200" />
+            <LogoutButton />
           </div>
         </div>
       </header>
@@ -69,10 +72,13 @@ export default async function DashboardPage() {
             <p className="text-sm text-slate-500">Faça a gestão dos seus produtos, definições e vendas</p>
           </div>
 
-          <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors shadow-xs">
+          <Link
+            href="/dashboard/stores/new"
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors shadow-xs w-fit"
+          >
             <Plus className="w-4 h-4" />
             <span>Criar Nova Loja</span>
-          </button>
+          </Link>
         </div>
 
         {merchantStores.length === 0 ? (
@@ -84,10 +90,13 @@ export default async function DashboardPage() {
             <p className="text-sm text-slate-500 max-w-md mx-auto mb-6">
               Comece agora criando a sua primeira montra online para expor produtos e receber pedidos.
             </p>
-            <button className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors shadow-xs">
+            <Link
+              href="/dashboard/stores/new"
+              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors shadow-xs"
+            >
               <Plus className="w-4 h-4" />
               <span>Criar a Primeira Loja</span>
-            </button>
+            </Link>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -98,7 +107,12 @@ export default async function DashboardPage() {
               >
                 <div>
                   <div className="flex items-start justify-between mb-4">
-                    <span className="font-bold text-lg text-slate-900">{st.name}</span>
+                    <Link
+                      href={`/dashboard/stores/${st.id}`}
+                      className="font-bold text-lg text-slate-900 hover:text-blue-600 transition-colors"
+                    >
+                      {st.name}
+                    </Link>
                     <span
                       className={`text-xs font-semibold px-2.5 py-0.5 rounded-full capitalize ${
                         st.status === "published"
@@ -118,20 +132,20 @@ export default async function DashboardPage() {
 
                 <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-sm">
                   <Link
-                    href={`/dashboard/stores/${st.id}/products`}
+                    href={`/dashboard/stores/${st.id}`}
                     className="flex items-center gap-1.5 text-slate-700 hover:text-blue-600 font-medium"
                   >
-                    <Package className="w-4 h-4" />
-                    <span>Produtos</span>
+                    <Settings className="w-4 h-4" />
+                    <span>Gerir Loja</span>
                   </Link>
 
                   <div className="flex items-center gap-2">
                     <Link
-                      href={`/dashboard/stores/${st.id}/settings`}
+                      href={`/dashboard/stores/${st.id}`}
                       className="p-2 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-50"
-                      title="Definições da loja"
+                      title="Definições e produtos"
                     >
-                      <Settings className="w-4 h-4" />
+                      <Package className="w-4 h-4" />
                     </Link>
                     <a
                       href={`/store/${st.slug}`}

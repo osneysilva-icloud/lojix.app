@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ShieldCheck, Users, Store, CreditCard, ArrowLeft } from "lucide-react";
 import Link from "next/link";
+import { LogoutButton } from "@/components/auth/LogoutButton";
 import type { Profile } from "@/types/database";
 
 export default async function SuperadminPage() {
@@ -46,13 +47,17 @@ export default async function SuperadminPage() {
             <span className="font-bold text-lg tracking-tight">LOJIX Superadmin Console</span>
           </div>
 
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors bg-slate-800 px-3 py-1.5 rounded-lg"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Voltar ao Dashboard</span>
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors bg-slate-800 px-3 py-1.5 rounded-lg"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Voltar ao Dashboard</span>
+            </Link>
+            <div className="h-4 w-px bg-slate-800" />
+            <LogoutButton className="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-rose-400 transition-colors p-2 rounded-lg hover:bg-slate-800" />
+          </div>
         </div>
       </header>
 
