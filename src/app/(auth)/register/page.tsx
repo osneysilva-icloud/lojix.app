@@ -1,7 +1,52 @@
+"use client";
+
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Store } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Store, Loader2, AlertCircle } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 export default function RegisterPage() {
+  const router = useRouter();
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    const supabase = createClient();
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password,
+      options: {
+        data: {
+          full_name: fullName.trim(),
+        },
+      },
+    });
+
+    if (signUpError) {
+      setError(`Erro ao criar conta: ${signUpError.message}`);
+      return;
+    }
+
+    if (data.session) {
+      startTransition(() => {
+        router.push("/dashboard");
+        router.refresh();
+      });
+    } else {
+      // Se confirmação de email estiver ativa
+      startTransition(() => {
+        router.push("/login?registered=true");
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 p-8 shadow-xs">
@@ -14,7 +59,14 @@ export default function RegisterPage() {
           <p className="text-sm text-slate-500 mt-1">Comece com o plano gratuito em segundos</p>
         </div>
 
-        <form className="space-y-4">
+        {error && (
+          <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleRegister} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold uppercase text-slate-700 mb-1" htmlFor="fullName">
               Nome Completo
@@ -23,6 +75,8 @@ export default function RegisterPage() {
               id="fullName"
               type="text"
               required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
               placeholder="Maria Silva"
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
             />
@@ -36,6 +90,9 @@ export default function RegisterPage() {
               id="email"
               type="email"
               required
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               placeholder="seu@email.com"
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
             />
@@ -50,6 +107,9 @@ export default function RegisterPage() {
               type="password"
               required
               minLength={8}
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               placeholder="Pelo menos 8 caracteres"
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
             />
@@ -57,9 +117,17 @@ export default function RegisterPage() {
 
           <button
             type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-xl text-sm transition-colors shadow-xs"
+            disabled={isPending}
+            className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-70 text-white font-medium py-2.5 rounded-xl text-sm transition-colors shadow-xs"
           >
-            Criar Minha Conta
+            {isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>A criar conta...</span>
+              </>
+            ) : (
+              <span>Criar Minha Conta</span>
+            )}
           </button>
         </form>
 
